@@ -1,0 +1,88 @@
+# Copyright © 2021 Dell Inc. or its subsidiaries. All Rights Reserved.
+# This software is protected, without limitation, by copyright law and
+# international treaties. Use of this software and the intellectual property
+# contained therein is expressly limited to the terms and conditions of the
+# License Agreement under which it is provided by or on behalf of Dell Inc
+# or its subsidiaries.
+# .........................................................................
+- name: Connecting to SRS, hashicorpvault and adding ip to dynamic inventory
+  hosts: localhost
+  no_log: true
+  collections:
+    - ngcs.common_collection
+  vars:
+    ara_url: "{{ snow_ara_url }}"
+    pf_url: "{{ snow_pf_url }}"
+    srs_product_name: "{{ srs_product_name }}"
+    awx_node_srs_name: "{{ awx_node_srs_name }}" 
+    customer_hcv_role_id: "{{ customer_hcv_role_id }}"
+    customer_hcv_secret_id: "{{ customer_hcv_secret_id }}"
+    customer_account: "{{ customer_account }}"
+    dell_location_id : "{{ dell_location_id }}"
+    automation_hcv_role_id: "{{ automation_hcv_role_id }}"
+    automation_hcv_secret_id : "{{ automation_hcv_secret_id }}"
+    snow_hcv_url: "{{snow_hcv_url}}"
+    vault_data: "{{ vault_data }}"
+    session_id: "{{ session_id }}"
+  tasks:
+    - name: Roles for srs,hashicorpvault connection and adding srs ip to dynamichost
+      include_role: 
+        name: ngcs-srs-hashicorp-connect 
+         
+- hosts: cpms_ara_loopback
+  gather_facts: true
+  collections:
+    - ngcs.common_collection
+  vars:
+    opsramp_url: "{{ vault_data.data.opsramp_url }}"
+    opsramp_version: "{{ vault_data.data.opsramp_version }}"
+    opsramp_client_secret: "{{ vault_data.data.opsramp_gateway_client_secret }}"
+    opsramp_client_id: "{{ vault_data.data.opsramp_gateway_client_id }}"
+    opsramp_customer_id: "{{ vault_data.data.opsramp_customer_id }}"
+    vm_name: "{{ snow_vm_name }}"
+    infoblox_version: "{{ vault_data.data.infoblox_version }}"
+    infoblox_username: "{{ vault_data.data.infoblox_username }}"
+    infoblox_password: "{{ vault_data.data.infoblox_password }}"
+    vm_fqdn: "{{ snow_vm_fqdn | lower }}"
+    infoblox_url: "{{ snow_infoblox_url }}" 
+    vcenter_fqdn: "{{ vault_data.data.vcenter_fqdn }}"
+    vcenter_password: "{{ vault_data.data.vcenter_password }}"
+    vcenter_username: "{{ vault_data.data.vcenter_username }}"
+    windows_username: "{{ vault_data.data.windows_username }}"
+    windows_password: "{{ vault_data.data.windows_password }}"
+    linux_password: "{{ vault_data.data.linux_password }}"
+    linux_username: "{{ vault_data.data.linux_username }}"
+    ad_password: "{{ vault_data.data.ad_password }}"
+    ad_username: "{{ vault_data.data.ad_username }}"
+    ad_domain: "{{ snow_ad_domain }}"
+    vcenter_datacenter: "{{ snow_vcenter_datacenter }}"
+    vcenter_datacenter_folder: "vm/Discovered virtual machine"
+    os_name: "{{ snow_os_name }}"
+    powershell_path: "{{ tower_powershell_path }}"
+    vm_realm_shell: "{{ tower_vm_realm_shell }}"
+    verify_certs: "{{ snow_verify_certs }}"
+    vcenter_datastore: "{{ snow_vcenter_datastore }}"
+    ara_url: "{{ snow_ara_url }}"
+    pf_url: "{{ snow_pf_url }}"
+  tasks:
+    - name: Deprovision vm from role
+      block:
+        - name: Deprovisioning
+          include_role:
+            name: "{{ item }}"
+          with_items:
+            - ipam_remove
+            - disjoin_domain
+            - remove_vm_from_inventory_datastore
+        - name: SRS disconnect success 
+          import_role:
+            name: srs-disconnect-success
+          delegate_to: localhost
+          delegate_facts: True
+          no_log: true
+      rescue:
+        - name: SRS disconnect failure
+          import_role:
+            name: srs-disconnect-fail
+          delegate_to: localhost
+          delegate_facts: True

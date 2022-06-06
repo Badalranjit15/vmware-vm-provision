@@ -1,0 +1,82 @@
+# Copyright © 2021 Dell Inc. or its subsidiaries. All Rights Reserved.
+# This software is protected, without limitation, by copyright law and
+# international treaties. Use of this software and the intellectual property
+# contained therein is expressly limited to the terms and conditions of the
+# License Agreement under which it is provided by or on behalf of Dell Inc
+# or its subsidiaries.
+# .........................................................................
+- name: Connecting to SRS, hashicorpvault and adding ip to dynamic inventory
+  hosts: localhost
+  no_log: "{{ tower_no_log_value }}"
+  collections:
+    - ngcs.common_collection
+  vars:
+    ara_url: "{{ snow_ara_url }}"
+    pf_url: "{{ snow_pf_url }}"
+    srs_product_name: "{{ srs_product_name }}"
+    awx_node_srs_name: "{{ awx_node_srs_name }}" 
+    customer_hcv_role_id: "{{ customer_hcv_role_id }}"
+    customer_hcv_secret_id: "{{ customer_hcv_secret_id }}"
+    customer_account: "{{ customer_account }}"
+    dell_location_id : "{{ dell_location_id }}"
+    automation_hcv_role_id: "{{ automation_hcv_role_id }}"
+    automation_hcv_secret_id : "{{ automation_hcv_secret_id }}"
+    snow_hcv_url: "{{snow_hcv_url}}"
+    vault_data: "{{ vault_data }}"
+    session_id: "{{ session_id }}"
+  tasks:
+    - name: Roles for srs,hashicorpvault connection and adding srs ip to dynamichost
+      include_role: 
+        name: ngcs-srs-hashicorp-connect
+
+- name: Stop VM
+  hosts: cpms_ara_loopback
+  no_log: "{{ tower_no_log_value }}"
+  collections:
+    - ngcs.common_collection
+  vars:
+      vcenter_fqdn: "{{ vault_data.data.vcenter_fqdn }}"
+      vcenter_username: "{{ vault_data.data.vcenter_username }}"
+      vcenter_password: "{{ vault_data.data.vcenter_password }}"
+      opsramp_url: "{{ vault_data.data.opsramp_url }}"
+      opsramp_gateway_client_id: "{{ vault_data.data.opsramp_gateway_client_id }}"
+      opsramp_gateway_client_secret: "{{ vault_data.data.opsramp_gateway_client_secret }}"
+      opsramp_customer_id: "{{ vault_data.data.opsramp_customer_id }}"
+      vcenter_datacenter: "{{ snow_vcenter_datacenter }}"
+      vcenter_datacenter_folder: "vm/Discovered virtual machine"
+      opsramp_version: "{{vault_data.data.opsramp_version}}"
+      vm_name: "{{ snow_vm_name }}"
+      vcenter_cluster: "{{ snow_vcenter_cluster }}"
+      vm_ip_address: "{{ snow_vm_ip_address }}"
+      verify_certs: "{{ snow_verify_certs }}"   
+      ara_url: "{{ snow_ara_url }}"
+      pf_url: "{{ snow_pf_url }}"
+  tasks:
+    - name: Stop VM
+      block:
+        - name: Check either Opsramp agent is installed in VM or not
+          import_role:
+            name: opsramp_management
+            tasks_from: opsramp_monitoring_status_check.yml
+        - name: Check either Opsramp agent is installed in VM or not
+          import_role:
+            name: opsramp_management
+            tasks_from: opsramp_vm_start_maintenance.yml
+          when:
+            - agent.json.results != []
+            - agent.json.results.0.status != "UP" or agent.json.results.0.status != "DOWN" or agent.json.results.0.status != "UNKNOWN"
+        - name: StopVM
+          import_role:
+            name: stop_vm
+        - name: SRS disconnect success
+          import_role:
+            name: srs-disconnect-success
+          delegate_to: localhost
+          delegate_facts: True
+          no_log: true
+      rescue:
+        - name: SRS disconnect failure
+          import_role:
+            name: srs-disconnect-fail
+          delegate_to: localhost
+          delegate_facts: True
