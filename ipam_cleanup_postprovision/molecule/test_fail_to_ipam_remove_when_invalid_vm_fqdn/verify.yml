@@ -1,0 +1,17 @@
+---
+- name: Verify
+  hosts: all
+  vars:
+    vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamcl.{{ ad_domain }}"
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: Verify response
+      vars:
+        response: "{{ ansible_local.infoblox_output.response.failed }}"
+      assert:
+        that:
+          - response is defined
+        success_msg: "failed to remove the vm from ipam with invalid {{ vm_fqdn }}"
+        fail_msg: "Success:Vm is successfully removed from ipam"

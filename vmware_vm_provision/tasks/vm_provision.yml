@@ -1,0 +1,182 @@
+---
+- name: Provision VM from OVF file
+  block:
+    - name: Deploy Virtual Machine from OVF template in content library
+      community.vmware.vmware_content_deploy_ovf_template:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        ovf_template: "{{ vcenter_ovf_template }}"
+        datastore: "{{ vcenter_datastore }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        datacenter: "{{ vcenter_datacenter }}"
+        name: "{{ item.0 }}"
+        cluster: "{{ vcenter_cluster }}"
+        validate_certs: "{{ verify_certs }}"
+      with_together:
+        - "{{ vm_name }}"
+      async: "{{ vm_async_timeout  }}"
+      poll: "{{ vm_poll_interval }}"
+  rescue:
+    - name: Get the output
+      fail:
+        msg: "There was no ovf file available with the name {{ vcenter_ovf_template }}"
+- name: fetch template disk info
+  block:
+    - name: Gather disk info from template
+      vmware_guest_disk_info:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        name: "{{ item.0 }}"
+        validate_certs: "{{ verify_certs }}"
+      register: disk_info
+      with_together:
+        - "{{ vm_name }}"
+  rescue:
+    - name: Get the output
+      debug:
+        msg: "There was no template available with the name {{ vcenter_ovf_template }}"
+- name: Configure resources to the VMs
+  block:
+    - name: Reconfigure CPU and RAM of VM
+      vmware_guest:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        cluster: "{{ vcenter_cluster }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        name: "{{ item.0 }}"
+        state: present
+        validate_certs: "{{ verify_certs }}"
+        hardware:
+          memory_mb: "{{ vm_memory_size }}"
+          num_cpus: "{{ vm_cpu }}"
+          scsi: paravirtual
+        networks:
+          - name: "{{ vcenter_network }}"
+            type: dhcp
+        disk:
+          - size_kb: '{{ disk_info.results[0].guest_disk_info["0"].capacity_in_kb }}'
+            autoselect_datastore: True
+            type: thin
+          - size_gb: "{{ vm_disk_size }}"
+            autoselect_datastore: True
+            type: thin
+      register: info
+      with_together:
+        - "{{ vm_name }}"
+  rescue:
+    - name: vm cration output
+      fail: 
+        msg: " {{ item.0 }} vm of type {{ os_name }} creation was unsuccesful"
+      with_together:
+        - "{{ vm_name }}"
+- name: Increasing disk size
+  block:
+    - name: Power on the VM server
+      vmware_guest:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        name: "{{ item.0 }}"
+        state: poweredon
+      with_together:
+        - "{{ vm_name }}"
+    - name: "Check the vmware-tools status until it started"
+      vmware_guest_info:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        name: "{{ item.0 }}"
+      register: check_vmware_tools_status_result
+      no_log: false
+      retries: 60
+      delay: 5
+      with_together:
+        - "{{ vm_name }}"
+      until: check_vmware_tools_status_result.instance.guest_tools_status == "guestToolsRunning"
+    - name: Set the disk label
+      set_fact:
+        disk_label: "Hard disk + {{ vm_disk_number }}"
+    - name: Resizing the disk size for Windows VM
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ windows_username }}"
+        vm_password: "{{ windows_password }}"
+        vm_shell: "{{ powershell_path }}"
+        wait_for_process: true
+        vm_shell_args: "-command $size = (Get-PartitionSupportedSize -DiskNumber {{ disk_label[-1] }} -PartitionNumber {{ var_partition_number }}); Resize-Partition -DiskNumber {{ disk_label[-1] }} -PartitionNumber {{ var_partition_number }} -Size $size.SizeMax"
+        validate_certs: "{{ verify_certs }}"
+      when: os_name is match('WS*')
+      register: disk_size_size
+      with_together:
+        - "{{ vm_name }}"
+    - name: Rescan the iscsi bus
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ linux_username }}"
+        vm_password: "{{ linux_password }}"
+        vm_shell: "{{ vm_rescan_iscsi_shell }}"
+        vm_shell_args: " -r -i > {{ vm_log_path }} 2>&1"
+        wait_for_process: true
+      when: os_name is not match('WS*')
+      with_together:
+        - "{{ vm_name }}"
+    - name: Increase the physical volume size for Linux VM
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ linux_username }}"
+        vm_password: "{{ linux_password }}"
+        vm_shell: "{{ vm_pvresize_shell }}"
+        vm_shell_args: " {{ var_device }} -v >> {{ vm_log_path }}"
+        wait_for_process: true
+      when: os_name is not match('WS*')
+      with_together:
+        - "{{ vm_name }}"
+    - name: Increase the logical volume size for Linux VM
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ linux_username }}"
+        vm_password: "{{ linux_password }}"
+        vm_shell: "{{ vm_lvextend_shell }}"
+        vm_shell_args: " -r -l +100%FREE /dev/{{ volume_group_name }}/{{ logical_volume_name }} >> {{ vm_log_path }}"
+        wait_for_process: true
+      when: os_name is not match('WS*')
+      with_together:
+        - "{{ vm_name }}"
+    - name: Successfully modified CPUs, RAM and Disk size
+      debug:
+        msg: "successfully added CPUs RAM and disk size"
+  rescue:
+    - name: Failed while modifying Disk Size, CPU and RAM
+      fail:
+        msg: "Failed to reize Disk Size for VM: {{ item.0 }} of os {{ os_name }} with CPU: {{ num_cpus }} and Memory: {{ memory_mb }}"

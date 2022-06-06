@@ -1,0 +1,12 @@
+---
+- hosts: all
+  connection: local
+  tasks:
+    - name: Remove ansible provisioning log file
+      file:
+        path: /etc/ansible/facts.d/vm_provision_result.fact
+        state: absent
+    - name: Remove ansible fact files
+      file:
+        path: /etc/ansible/facts.d/vm_output.fact
+        state: absent

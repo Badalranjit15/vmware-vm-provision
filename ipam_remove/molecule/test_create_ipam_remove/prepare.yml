@@ -1,0 +1,21 @@
+---
+- name: Prepare
+  hosts: all
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: 'Creating VM and assigning IP and Hostname to it'
+      include_role:
+        name: "vmware_vm_provision"
+        tasks_from: "{{ item }}"
+      vars:
+        vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamremove"
+        vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamremove.{{ ad_domain }}"
+        vm_disk_size: 10
+        vm_memory_size: 1024
+        vm_cpu: 2
+      loop:
+        - vm_provision.yml
+        - ip_assign_ipam.yml
+        - hostname_assign.yml

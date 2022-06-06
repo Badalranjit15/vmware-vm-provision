@@ -1,0 +1,19 @@
+# Copyright © 2021 Dell Inc. or its subsidiaries. All Rights Reserved.
+# This software is protected, without limitation, by copyright law and
+# international treaties. Use of this software and the intellectual property
+# contained therein is expressly limited to the terms and conditions of the
+# License Agreement under which it is provided by or on behalf of Dell Inc
+# or its subsidiaries.
+# .........................................................................
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Verify response
+      vars:
+        response: "{{ ansible_local.vm_output.response.failed }}"
+      assert:
+        that:
+          - response is defined
+        fail_msg: "VM created successfully"
+        success_msg: "Failure: VM creation failed due to wrong Vcenter network"

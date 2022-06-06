@@ -1,0 +1,23 @@
+---
+- name: Cleanup
+  hosts: localhost
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: Cleanup the resources
+      block:
+        - name: Including roles for IPAM remove, domain disjoin, remove VM
+          include_role:
+            name: "{{ item }}"
+          vars:
+            vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-{{ ansible_local.vm_provision_results.epoch }}"
+            vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-{{ ansible_local.vm_provision_results.epoch }}.{{ ad_domain }}"
+          loop:
+            - 'ipam_cleanup_postprovision'
+            - 'disjoin_domain'
+            - 'remove_vm_from_inventory_datastore'
+    - name: Remove ansible provisioning log file
+      file:
+        path: /etc/ansible/facts.d/vm_provision_results.fact
+        state: absent

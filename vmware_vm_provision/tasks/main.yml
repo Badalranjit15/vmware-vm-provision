@@ -1,0 +1,9 @@
+---
+- name: Provision VM in vmware
+  include_tasks: vm_provision.yml 
+- name: Integrated with IPAM
+  include_tasks: ip_assign_ipam.yml
+- name: Hostname and IP Assignment
+  include_tasks: hostname_assign.yml
+- name: Join with ad-domain
+  include_tasks: join_ad.yml

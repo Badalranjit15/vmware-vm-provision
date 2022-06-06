@@ -1,0 +1,30 @@
+---
+- name: Unmap the vm from ipam
+  block:
+    - name: Get the reference information of VM from ipam
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/record:host?name~={{ vm_fqdn }}"
+        method: GET
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ verify_certs }}"
+      register: infoblox
+    - name: Get the value of record to be deleted
+      set_fact:
+        record_delete: "{{ infoblox.json.0._ref.split(':')[1].split('/')[1] }}"
+    - name: Delete the record of VM from ipam
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/record:host/{{ record_delete }}"
+        method: DELETE
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ verify_certs }}"
+    - name: VM is successfully unmapped
+      debug:
+        msg: "Thev VM {{ vm_fqdn }} has been successfully unmapped from {{ infoblox_url }}"
+  rescue:
+    - name: Failed to unmap the VM from ipam
+      fail:
+        msg: "There was an error while unmapping the VM {{ vm_fqdn }} from {{ infoblox_url }}"

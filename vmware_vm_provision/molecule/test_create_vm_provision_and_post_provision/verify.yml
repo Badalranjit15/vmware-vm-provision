@@ -1,0 +1,35 @@
+# Copyright © 2021 Dell Inc. or its subsidiaries. All Rights Reserved.
+# This software is protected, without limitation, by copyright law and
+# international treaties. Use of this software and the intellectual property
+# contained therein is expressly limited to the terms and conditions of the
+# License Agreement under which it is provided by or on behalf of Dell Inc
+# or its subsidiaries.
+# .........................................................................
+---
+- name: Verify
+  hosts: all
+  vars:
+    vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-{{ ansible_local.vm_provision_results.epoch }}"
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: Get UUID from given VM Name
+      block:
+        - name: Get virtual machine info
+          vmware_vm_info:
+            hostname: '{{ vcenter_fqdn }}'
+            username: '{{ vcenter_username }}'
+            password: '{{ vcenter_password }}'
+            folder: "/{{ vcenter_datacenter }}/vm/"
+            validate_certs: "{{ verify_certs }}"
+          delegate_to: localhost
+          register: vm_info
+        - debug:
+            msg: "{{ item.guest_name }} VM created successfully"
+          with_items:
+            - "{{ vm_info.virtual_machines }}"
+          when: item.guest_name == vm_name
+      rescue:
+        - debug:
+            msg: "{{ vm_name }} VM creation failed."

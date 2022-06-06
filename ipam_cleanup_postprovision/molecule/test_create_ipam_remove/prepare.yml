@@ -1,0 +1,36 @@
+---
+- name: Prepare
+  hosts: all
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: Set epoch
+      set_fact:
+        epoch: "{{ ansible_date_time.epoch }}"
+
+    - name: Create fact directory
+      file:
+        path: /etc/ansible/facts.d/
+        state: directory
+
+    - name: Create a static custom fact
+      copy:
+        content:
+          epoch: "{{ epoch }}"
+        dest: /etc/ansible/facts.d/ipam_output.fact
+    - debug: var=ansible_local
+    - name: 'Creating VM and assigning IP and Hostname to it'
+      include_role:
+        name: "vmware_vm_provision"
+        tasks_from: "{{ item }}"
+      vars:
+        vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamcleanup"
+        vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamcleanup.{{ ad_domain }}"
+        vm_disk_size: 10
+        vm_memory_size: 1024
+        vm_cpu: 2
+      loop:
+        - vm_provision.yml
+        - ip_assign_ipam.yml
+        - hostname_assign.yml

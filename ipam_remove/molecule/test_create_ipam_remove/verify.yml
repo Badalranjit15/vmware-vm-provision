@@ -1,0 +1,33 @@
+---
+- name: Verify
+  hosts: all
+  vars:
+    vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamremove"
+    vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamremove.{{ ad_domain }}"
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: Get the reference information of VM from ipam
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/record:host"
+        method: GET
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ verify_certs }}"
+      register: infoblox
+    - debug:
+        msg: "{{ item.ipv4addrs.0.host }}"
+      with_items:
+        - "{{ infoblox.json }}"
+    - name: Verify response
+      vars:
+        response: "{{ ansible_local.infoblox_output.response.failed }}"
+      assert:
+        that:
+          - item.ipv4addrs.0.host != vm_fqdn
+        fail_msg: "failed to remove the vm from ipam"
+        success_msg: "Success:Vm is successfully removed from ipam"
+      with_items:
+        - "{{ infoblox.json }}"

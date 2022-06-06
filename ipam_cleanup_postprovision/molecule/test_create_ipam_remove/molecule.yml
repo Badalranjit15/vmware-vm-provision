@@ -1,0 +1,31 @@
+---
+dependency:
+  name: galaxy
+lint: |
+  set -e
+  yamllint -c ../common/.yamllint ./molecule/test_create_ipam_remove/*.yml
+  ansible-lint -c ../common/.ansible-lint -x behaviour,metadata ./tasks/*.yml
+driver:
+  name: delegated
+  managed: false
+  options:
+    managed: false
+    ansible_connection_options:
+      ansible_connection: local
+platforms:
+  - name: instance
+    image: docker.io/pycontribs/centos:8
+    pre_build_image: true
+scenario:
+  test_sequence:
+    - dependency
+    - lint
+    - syntax
+    - prepare
+    - converge
+    - verify
+    - cleanup
+provisioner:
+  name: ansible
+verifier:
+  name: ansible

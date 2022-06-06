@@ -1,0 +1,86 @@
+---
+- name: Join the Windows Server to AD
+  block:
+    - name: join to AD domain
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ windows_username }}"
+        vm_password: "{{ windows_password }}"
+        vm_shell: "{{ powershell_path }}"
+        vm_shell_args: '-Command "& {$pwd = ConvertTo-SecureString -AsPlainText -Force \"{{ ad_password }}\" ; $cred = New-Object System.Management.Automation.PSCredential(\"{{ ad_domain }}\{{ ad_username }}\",$pwd) ; Add-Computer -Domain {{ ad_domain }} -Credential $cred -Force -Restart}"'
+      with_together:
+          - "{{ vm_name }}"
+      when: os_name is match('WS*')
+  rescue:
+  - name: Error when setting the Domain of the Windows VM
+    fail:
+      msg:  "Exiting. Error when setting the Domain for Windows VM {{ vm_name }}"
+- name: Join the Linux Server to AD
+  block:
+    - name: Add the linux server to the domain
+      vmware_vm_shell:
+          hostname: "{{ vcenter_fqdn }}"
+          username: "{{ vcenter_username }}"
+          password: "{{ vcenter_password }}"
+          validate_certs: "{{ verify_certs }}"
+          datacenter: "{{ vcenter_datacenter }}"
+          folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+          vm_id: "{{ item.0 }}"
+          vm_username: "{{ linux_username }}"
+          vm_password: "{{ linux_password }}"
+          vm_shell: "{{ vm_echo_shell }}"
+          vm_shell_args: " {{ ad_password | quote  }} | realm join -U {{ ad_username }} {{ ad_domain }}"
+          wait_for_process: true
+      with_together:
+          - "{{ vm_name }}"
+      when: os_name is not match('WS*')
+    - name: Change the hostname for the linux server
+      vmware_vm_shell:
+          hostname: "{{ vcenter_fqdn }}"
+          username: "{{ vcenter_username }}"
+          password: "{{ vcenter_password }}"
+          validate_certs: "{{ verify_certs }}"
+          datacenter: "{{ vcenter_datacenter }}"
+          folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+          vm_id: "{{ item.0 }}"
+          vm_username: "{{ linux_username }}"
+          vm_password: "{{ linux_password }}"
+          vm_shell: /bin/hostnamectl
+          vm_shell_args: " set-hostname {{ item.0 | replace ('_','') }}"
+          wait_for_process: true
+      with_together:
+          - "{{ vm_name }}"
+      when: os_name is not match('WS*')
+  rescue:
+    - name: Error when setting the Domain of the Linux VM
+      fail:
+        msg:  "Exiting. Error when setting the Domain for Linux VM {{ vm_name }}"
+- name: Get VM information
+  block:
+    - name: Gather virtual machines information
+      vmware_guest_info:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: '{{ vcenter_datacenter }}'
+        validate_certs: "{{ verify_certs }}" 
+        name: "{{ item.0 }}"
+      when: vm_name | length > 1
+      with_together:
+          - "{{ vm_name }}"
+          - "{{ ipamip_get.results }}" 
+      register: vm_info
+      tags: vm_show_info
+    - name: Get VM info 
+      debug:
+        msg: "{{ vm_info }}"
+  rescue:
+    - name: Error when checking the VM information
+      fail:
+        msg:  "Exiting. Error when setting getting vm information for {{ vm_name }}"

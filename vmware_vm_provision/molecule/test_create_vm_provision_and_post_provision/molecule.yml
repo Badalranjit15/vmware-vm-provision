@@ -1,0 +1,40 @@
+# Copyright © 2021 Dell Inc. or its subsidiaries. All Rights Reserved.
+# This software is protected, without limitation, by copyright law and
+# international treaties. Use of this software and the intellectual property
+# contained therein is expressly limited to the terms and conditions of the
+# License Agreement under which it is provided by or on behalf of Dell Inc
+# or its subsidiaries.
+
+---
+dependency:
+  name: galaxy
+lint: |
+  set -e
+  yamllint -c ../common/.yamllint ./molecule/test_create_vm_provision_and_post_provision/*.yml
+  ansible-lint -c ../common/.ansible-lint -x behaviour,metadata ./tasks/*.yml
+driver:
+  name: delegated
+  options:
+    managed: false
+    ansible_connection_options:
+      ansible_connection: local
+platforms:
+  - name: instance
+    image: docker.io/pycontribs/centos:8
+    pre_build_image: true
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_COLLECTIONS_PATHS: ../../../../collections
+    ANSIBLE_COLLECTIONS_PATH: ../../../../collections
+verifier:
+  name: ansible
+scenario:
+  test_sequence:
+    - dependency
+    - lint
+    - syntax
+    - prepare
+    - converge
+    - verify
+    - cleanup

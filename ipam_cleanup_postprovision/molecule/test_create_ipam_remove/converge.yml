@@ -1,0 +1,19 @@
+---
+- name: Converge
+  hosts: all
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: 'Removing VM entry from Infoblox'
+      block:
+        - name: "Including Roles to remove multiple VM entry from Infoblox"
+          include_role:
+            name: "ipam_cleanup_postprovision"
+          vars:
+            vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamcleanup"
+            vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-ipamcleanup.{{ ad_domain }}"
+      rescue:
+        - name: VM provisionig Error info
+          debug:
+            msg: "There was an error removing VM entry from Infoblox {{ ansible_failed_result.msg }}"

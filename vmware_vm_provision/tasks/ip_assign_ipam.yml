@@ -1,0 +1,138 @@
+---
+- name: Add tags to the VM 
+  block:
+    - name: Task to add tags to the VM
+      vmware_tag_manager:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        tag_names: "{{ vm_tags }}"
+        object_name: "{{ item.0 }}" 
+        object_type: VirtualMachine
+        state: add
+      with_together:
+          - "{{ vm_name }}"
+  rescue:
+    - name: Error when adding tags
+      fail:
+        msg:  "Exiting. Error while adding tags to VM {{ vm_name }} with tags {{ vm_tags }}."
+- name: Fetch network details from IPAM
+  block:
+    - name: Send VM details to IPAM
+      uri:
+        url: https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/record:host
+        headers:
+          Content-Type: application/json
+          Accept: application/json
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        method: POST
+        force_basic_auth: true
+        status_code: 201,400
+        body_format: json
+        validate_certs: "{{ verify_certs }}"
+        body:
+          name: "{{ item.0 }}.{{ ad_domain }}"
+          ipv4addrs:
+            - ipv4addr: "func:nextavailableip:{{ subnet }}"
+      with_together: 
+           - "{{ vm_name }}"
+      register: ipamip
+    - name: saving vars
+      debug:
+        var: ipamip
+    - name: "Fail if the VM already has an IP"
+      fail:
+        msg: "The VM has already gone through post-provisioning process since already exists for the following record"
+      loop: "{{ ipamip.results }}"
+      when:
+        - 'item.json.Error is defined'
+        - '"already exists" in item.json.Error'
+    - name: Fetch IP details of VM from IPAM
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/{{ item.json }}"
+        headers:
+          Content-Type: application/json
+          Accept: application/json
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        method: GET
+        force_basic_auth: true
+        status_code: 200
+        body_format: json
+        validate_certs: false 
+      register: ipamip_get
+      loop: "{{ ipamip.results }}"
+    - name: Get Reference value of for subnet
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/network?network={{ subnet }}&_return_as_object=1"
+        headers:
+          Content-Type: application/json
+          Accept: application/json
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        method: GET
+        force_basic_auth: true
+        status_code: 200
+        body_format: json
+        validate_certs: "{{ verify_certs }}"
+      register: ipamip_get_reference
+    - name: Get network details of the VM
+      uri:
+        url: "https://{{ infoblox_url }}/wapi/{{ infoblox_version }}/{{ ipamip_get_reference.json.result.0._ref }}?_return_fields%2b=options,netmask"
+        headers:
+          Content-Type: application/json
+          Accept: application/json
+        user: "{{ infoblox_username }}"
+        password: "{{ infoblox_password }}"
+        method: GET
+        force_basic_auth: true 
+        status_code: 200
+        body_format: json
+        validate_certs: false
+      register: ipamip_get_value
+    - name: Combine the dict to get values in same JSON
+      set_fact:
+        ipam_options: "{{ ipam_options| default({}) | combine( {item.name: item.value} ) }}"
+      with_items:
+        - "{{ ipamip_get_value.json.options }}"
+    - name: Set the gateway IP
+      set_fact:
+        ipam_gateway: "{{ ipam_options.routers }}"
+    - name: Print the gateway IP
+      debug:
+        msg: "{{ ipam_gateway }}"
+    - name: Set the DNS IP
+      set_fact:
+        ipam_dns: "{{ ipam_options['domain-name-servers'] }}"
+    - name: Print the DNS IP
+      debug:
+        msg: "{{ ipam_dns }}"
+    - name: Set the netmask IP
+      set_fact:
+        ipam_netmask: "{{ ipamip_get_value.json.netmask }}"
+    - name: Print the netmask IP
+      debug:
+        msg: "{{ ipam_netmask }}"
+  rescue:
+    - name: Error when fetching details from IPAM
+      fail:
+        msg:  "Exiting. Error while fetching details from IPAM host {{ infoblox_url }} and ipam username {{ infoblox_username }} and subnet{{ subnet }}."
+- name: "Check the vmware-tools status until it started"
+  vmware_guest_info:
+       hostname: "{{ vcenter_fqdn }}"
+       username: "{{ vcenter_username }}"
+       password: "{{ vcenter_password }}"
+       validate_certs: "{{ verify_certs }}"
+       datacenter: "{{ vcenter_datacenter }}"
+       folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+       name: "{{ item.0 }}"
+  register: check_vmware_tools_status_result
+  no_log: true
+  retries: 60
+  delay: 5
+  with_together:
+    - "{{ vm_name }}"
+  until: check_vmware_tools_status_result.instance.guest_tools_status == "guestToolsRunning"
+  

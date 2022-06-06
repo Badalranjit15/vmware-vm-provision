@@ -1,0 +1,214 @@
+---
+- name: Change hostname of Windows Server
+  block:
+    - name: Pause for VM to bootup
+      pause: 
+        minutes: "{{ pause_in_minutes }}"
+    - name: Change the hostname for the windows server
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ windows_username }}"
+        vm_password: "{{ windows_password }}"
+        vm_shell: "{{ powershell_path }}"
+        vm_shell_args: "-command  (Rename-Computer -NewName {{ item.0 }} -Force -Restart)"
+      with_together:
+        - "{{ vm_name }}"
+        - "{{ ipamip_get.results }}"
+      when: os_name is match('WS*')
+      tags: windows_hostname
+    - name: Wait for the machine to get restarted
+      pause: 
+        minutes: "{{ pause_in_minutes }}"
+      when: os_name is match('WS*')
+      tags: windows_hostname
+  rescue:
+    - name: Error when setting the hostname
+      fail:
+        msg:  "Exiting. Error when setting the hostname for Windows VM {{ vm_name }}"
+- name: Change IP address of Windows Server
+  block:
+    - name: Change IP Address for Windows Machine
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ windows_username }}"
+        vm_password: "{{ windows_password }}"
+        vm_shell: netsh.exe
+        vm_shell_args: " interface ip set address name={{ windows_interface }} static {{ item.1.json.ipv4addrs.0.ipv4addr }} {{ subnet | ipaddr('netmask') }}  {{ ipam_gateway }}"
+        vm_shell_cwd: "{{ vm_shell_cwd }}"
+        validate_certs: "{{ verify_certs }}"
+      with_together:
+          - "{{ vm_name }}"
+          - "{{ ipamip_get.results }}"
+      when: os_name is match('WS*')
+  rescue:
+    - name: Error when setting the IP address
+      fail:
+        msg:  "Exiting. Error when setting the IP address of Windows VM {{ vm_name }}"
+
+- name: Change DNS server of Windows Server
+  block:
+    - name: "Check the vmware-tools status until it started"
+      vmware_guest_info:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        name: "{{ item.0 }}"
+      register: check_vmware_tools_status_result
+      no_log: true
+      retries: 60
+      delay: 5
+      with_together:
+        - "{{ vm_name }}"
+      until: check_vmware_tools_status_result.instance.guest_tools_status == "guestToolsRunning"
+    - name: Change the DNS server of Windows VM
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ windows_username }}"
+        vm_password: "{{ windows_password }}"
+        vm_shell: netsh.exe
+        vm_shell_args: ' interface ip set dns name={{ windows_interface }}  static {{ ipam_dns.split(",")[0] }}'
+        vm_shell_cwd: "C:\\Windows\\System32"
+      with_together:
+        - "{{ vm_name }}"
+        - "{{ ipamip_get.results }}"
+      when: os_name is match('WS*')
+  rescue:
+    - name: Error when setting the DNS server of Windows VM
+      fail:
+        msg:  "Exiting. Error when setting the DNS server for Windows VM {{ vm_name }}"
+- name: Change hostname of Linux Server
+  block:
+    - name: "Check the vmware-tools status until it started"
+      vmware_guest_info:
+          hostname: "{{ vcenter_fqdn }}"
+          username: "{{ vcenter_username }}"
+          password: "{{ vcenter_password }}"
+          validate_certs: "{{ verify_certs }}"
+          datacenter: "{{ vcenter_datacenter }}"
+          folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+          name: "{{ item.0 }}"
+      register: check_vmware_tools_status_result
+      no_log: true
+      retries: 60
+      delay: 5
+      with_together:
+        - "{{ vm_name }}"
+      until: check_vmware_tools_status_result.instance.guest_tools_status == "guestToolsRunning"
+    - name: Change the hostname for the linux server
+      vmware_vm_shell:
+          hostname: "{{ vcenter_fqdn }}"
+          username: "{{ vcenter_username }}"
+          password: "{{ vcenter_password }}"
+          validate_certs: "{{ verify_certs }}"
+          datacenter: "{{ vcenter_datacenter }}"
+          folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+          vm_id: "{{ item.0 }}"
+          vm_username: "{{ linux_username }}"
+          vm_password: "{{ linux_password }}"
+          vm_shell: /bin/hostnamectl
+          vm_shell_args: " set-hostname {{ item.0 }}.{{ ad_domain }}"
+          wait_for_process: true
+      with_together:
+          - "{{ vm_name }}"
+          - "{{ ipamip_get.results }}"
+      when: os_name is not match('WS*')
+      tags: linux_hostname
+      no_log: true
+    - name: Reboot the server
+      vmware_guest:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        cluster: "{{ vcenter_cluster }}"
+        validate_certs: "{{ verify_certs }}"
+        state: rebootguest
+        datacenter: "{{ vcenter_datacenter }}"
+        name: "{{ item.0 }}"
+      with_together:
+          - "{{ vm_name }}"
+      when: os_name is not match('WS*')
+      tags: linux_hostname
+    - name: Pause for VM to bootup
+      pause: 
+        minutes: "{{ pause_in_minutes }}"
+  rescue:
+    - name: Error when setting the hostname of Linux VM
+      fail:
+        msg:  "Exiting. Error when setting the hostname for Linux VM {{ vm_name }}"
+- name: Change IP address of Linux Server
+  block:
+    - name: "Check the vmware-tools status until it started"
+      vmware_guest_info:
+          hostname: "{{ vcenter_fqdn }}"
+          username: "{{ vcenter_username }}"
+          password: "{{ vcenter_password }}"
+          validate_certs: "{{ verify_certs }}"
+          datacenter: "{{ vcenter_datacenter }}"
+          folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+          name: "{{ item.0 }}"
+      register: check_vmware_tools_status_result
+      no_log: true
+      retries: 60
+      delay: 5
+      with_together:
+        - "{{ vm_name }}"
+      until: check_vmware_tools_status_result.instance.guest_tools_status == "guestToolsRunning"
+    - name: update the ip address for Linux server
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ linux_username }}"
+        vm_password: "{{ linux_password }}"
+        vm_shell: /usr/bin/nmcli
+        vm_shell_args: ' connection modify {{ linux_interface }} ipv4.addresses {{ item.1.json.ipv4addrs.0.ipv4addr }}/{{ ipam_netmask }} ipv4.gateway {{ ipam_gateway }} ipv4.dns {{ ipam_dns.split(",")[0] }} ipv4.dns-search {{ ad_domain }} ipv4.method manual '
+      with_together:
+          - "{{ vm_name }}"
+          - "{{ ipamip_get.results }}"
+          - "{{ os_name }}"
+      when: os_name is not match('WS*')
+    - name: update the ip address for Linux server
+      vmware_vm_shell:
+        hostname: "{{ vcenter_fqdn }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ verify_certs }}"
+        datacenter: "{{ vcenter_datacenter }}"
+        folder: "/{{ vcenter_datacenter }}/{{ vcenter_datacenter_folder }}/"
+        vm_id: "{{ item.0 }}"
+        vm_username: "{{ linux_username }}"
+        vm_password: "{{ linux_password }}"
+        vm_shell: /usr/bin/nmcli
+        vm_shell_args: ' connection up {{ linux_interface }}'
+      with_together:
+          - "{{ vm_name }}"
+          - "{{ ipamip_get.results }}"
+      when: os_name is not match('WS*')
+  rescue:
+    - name: Error when setting the IP address of Linux VM
+      fail:
+        msg:  "Exiting. Error when setting the IP address for Linux VM {{ vm_name }}"

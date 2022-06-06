@@ -1,0 +1,29 @@
+---
+- name: Converge
+  hosts: localhost
+  tasks:
+    - name: Include Variable Declaration
+      include_role:
+        name: common
+    - name: 'Provisioning and Provisioning VM in vcenter'
+      block:
+        - name: "Including Vm provision and post provision role for vm provisioning"
+          include_role:
+            name: "vmware_vm_provision"
+          vars:
+            vm_name: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-{{ ansible_local.vm_provision_results.epoch }}"
+            vm_fqdn: "{{ lookup('env', 'env_branch').split('-')[-1] }}vm-{{ ansible_local.vm_provision_results.epoch }}.{{ ad_domain }}"
+            vm_disk_size: 10
+            vm_memory_size: 1024
+            vm_cpu: 2
+            vcenter_network: Manage
+      rescue:
+        - name: VM provisionig Error info
+          debug:
+            msg: "There was an error during VM provisioning {{ ansible_failed_result.msg }}"
+        - name: store the failing tasks to fact
+          copy:
+            content:
+              response: "{{ vm_output  }}"
+            dest: /etc/ansible/facts.d/vm_output.fact
+          when: vm_output is defined
